@@ -1,65 +1,91 @@
-﻿using System.Windows;
+﻿using System;
+using System.Globalization;
+using System.Windows;
 using System.Windows.Media;
 
 namespace StopwatchSolution2
 {
     /// <summary>
-    /// DrawingVisual を保持・描画するためのホスト
+    /// DrawingVisual をホストする FrameworkElement
+    /// 描画は CompositionTarget.Rendering から呼ばれる
     /// </summary>
     public sealed class VisualHost : FrameworkElement
     {
-        private readonly VisualCollection _children;
-        private readonly DrawingVisual _visual = new();
+        private readonly DrawingVisual _visual = new DrawingVisual();
+
+        private Frame? _currentFrame;
+
+        /// <summary>
+        /// 7セグ風デジタルフォント
+        /// </summary>
+        private static readonly Typeface DigitalTypeface =
+            new Typeface(
+                new FontFamily(
+                    new Uri("pack://application:,,,/"),
+                    "./Fonts/#DSEG7 Classic"
+                ),
+                FontStyles.Normal,
+                FontWeights.Normal,
+                FontStretches.Normal
+            );
 
         public VisualHost()
         {
-            _children = new VisualCollection(this)
-            {
-                _visual
-            };
+            AddVisualChild(_visual);
+            AddLogicalChild(_visual);
         }
 
         /// <summary>
-        /// Frame内容をそのまま描画する
+        /// UIスレッドから呼ばれる描画関数
         /// </summary>
         public void Render(Frame frame)
         {
-            if (frame.ViewportSize.Width <= 0 ||
-                frame.ViewportSize.Height <= 0)
-            {
+            if (ReferenceEquals(_currentFrame, frame))
                 return;
-            }
+
+            _currentFrame = frame;
 
             using var dc = _visual.RenderOpen();
 
-            // 背景（黒）
+            DrawBackground(dc, frame.ViewportSize);
+            DrawTimeText(dc, frame);
+        }
+
+        private static void DrawBackground(DrawingContext dc, Size size)
+        {
             dc.DrawRectangle(
                 Brushes.Black,
                 null,
-                new Rect(new Point(0, 0), frame.ViewportSize)
+                new Rect(0, 0, size.Width, size.Height)
             );
+        }
 
-            // 文字描画
+        private static void DrawTimeText(DrawingContext dc, Frame frame)
+        {
             var text = new FormattedText(
                 frame.TimeText,
-                System.Globalization.CultureInfo.InvariantCulture,
+                CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface("Segoe UI"),
-                48,
+                DigitalTypeface,
+                frame.FontSize,
                 Brushes.Lime,
-                VisualTreeHelper.GetDpi(this).PixelsPerDip
+                1.0
             );
 
-            // 中央寄せ
-            var x = (frame.ViewportSize.Width - text.Width) / 2;
-            var y = (frame.ViewportSize.Height - text.Height) / 2;
+            double x = (frame.ViewportSize.Width - text.Width) * 0.5;
+            double y = (frame.ViewportSize.Height - text.Height) * 0.5;
 
             dc.DrawText(text, new Point(x, y));
         }
 
-        protected override int VisualChildrenCount => _children.Count;
+        protected override int VisualChildrenCount => 1;
 
         protected override Visual GetVisualChild(int index)
-            => _children[index];
+        {
+            if (index != 0)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            return _visual;
+        }
     }
 }
