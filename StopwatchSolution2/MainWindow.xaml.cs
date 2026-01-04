@@ -14,10 +14,12 @@ namespace StopwatchSolution2
         private Frame _latestFrame =
             new Frame("00:00.00", new Size(1, 1), 72);
 
+        // Sizeを包む参照型（volatile可能）
+        private volatile ViewportInfo _viewport =
+            new ViewportInfo { Size = new Size(1, 1) };
+
         private readonly Stopwatch _stopwatch = new Stopwatch();
-
         private CancellationTokenSource? _cts;
-
         private volatile bool _running;
 
         public MainWindow()
@@ -38,12 +40,11 @@ namespace StopwatchSolution2
         }
 
         // ============================
-        // UI Rendering
+        // UI Rendering (UIスレッド)
         // ============================
         private void OnRendering(object? sender, EventArgs e)
         {
-            var frame = _latestFrame;
-            _visualHost.Render(frame);
+            _visualHost.Render(_latestFrame);
         }
 
         // ============================
@@ -51,8 +52,7 @@ namespace StopwatchSolution2
         // ============================
         private void Start_Click(object sender, RoutedEventArgs e)
         {
-            if (_running)
-                return;
+            if (_running) return;
 
             _running = true;
             _stopwatch.Start();
@@ -63,8 +63,7 @@ namespace StopwatchSolution2
 
         private void Stop_Click(object sender, RoutedEventArgs e)
         {
-            if (!_running)
-                return;
+            if (!_running) return;
 
             _running = false;
             _stopwatch.Stop();
@@ -90,11 +89,12 @@ namespace StopwatchSolution2
                 if (_running)
                 {
                     var t = _stopwatch.Elapsed;
-                    var text = $"{t.Minutes:00}:{t.Seconds:00}.{t.Milliseconds / 10:00}";
+                    var text =
+                        $"{t.Minutes:00}:{t.Seconds:00}.{t.Milliseconds / 10:00}";
+
                     PublishFrame(text);
                 }
 
-                // CPU を休ませる（高Hzでも破綻しない）
                 Thread.Sleep(1);
             }
         }
@@ -104,26 +104,45 @@ namespace StopwatchSolution2
         // ============================
         private void PublishFrame(string text)
         {
-            var size = _visualHost.RenderSize;
-
-            if (size.Width <= 0 || size.Height <= 0)
-                size = new Size(1, 1);
+            var viewport = _viewport; // volatile read
 
             var frame = new Frame(
                 text,
-                size,
-                72   // ← ★ FontSize を必ず指定
+                viewport.Size,
+                72
             );
 
             Interlocked.Exchange(ref _latestFrame, frame);
         }
 
+        // ============================
+        // UIスレッド専用
+        // ============================
         private void UpdateViewport()
         {
-            _visualHost.Width = DrawCanvas.ActualWidth;
-            _visualHost.Height = DrawCanvas.ActualHeight;
+            var size = new Size(
+                DrawCanvas.ActualWidth,
+                DrawCanvas.ActualHeight
+            );
+
+            if (size.Width <= 0 || size.Height <= 0)
+                size = new Size(1, 1);
+
+            _visualHost.Width = size.Width;
+            _visualHost.Height = size.Height;
+
+            // 新しい参照を丸ごと差し替え（安全）
+            _viewport = new ViewportInfo { Size = size };
 
             PublishFrame(_latestFrame.TimeText);
+        }
+
+        // ============================
+        // helper
+        // ============================
+        private sealed class ViewportInfo
+        {
+            public Size Size;
         }
     }
 }
